@@ -10,9 +10,9 @@ from telebot.types import (
     LabeledPrice
 )
 
-# На Render токен лучше скрыть в Environment Variables, но можно вписать и сюда
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render подставляет этот URL сам
+# Токен подтягивается из переменных окружения Render (или ставится заглушка)
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8894447777:AAHwe6xSY7dCg61XRxWqla0qzVOJ5Ljpw8E")
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://asfsf354354.onrender.com")
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 app = Flask(__name__)
@@ -178,13 +178,13 @@ def process_successful_payment(message):
         "🎉 **Вы совершили тестовую оплату Звёздами!**\n\n"
         "👨‍🏫 **Объяснение для презентации (Как работает скам):**\n"
         "1. **Иллюзия работы:** Прогресс-бар с паузами создал ложное ощущение, что бот выполнял «сложные серверные вычисления».\n"
-        "2. **Маскировка номера:** Маска `+380 (67) ***-**-89` была сгенерирована случайно на основе шаблонов операторов выбранной страны. Реальный номер бот не знает.\n"
+        "2. **Маскировка номера:** Маска номера была сгенерирована случайно на основе шаблонов операторов выбранной страны. Реальный номер бот не знает.\n"
         "3. **Финансовый ущерб:** В реальном мошенническом боте пользователь теряет реальные деньги (или Telegram Stars), но в ответ получает либо ничего, либо пустой файл/шаблоны.\n\n"
         "💡 *Telegram Bot API строго изолирован и не имеет физической возможности читать чужие чаты или определять геолокацию без согласия пользователя.*"
     )
 
 
-# --- НАСТРОЙКА WEBHOOK ДЛЯ FLASK И RENDER ---
+# --- WEBHOOK РОУТЫ ДЛЯ FLASK ---
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -203,11 +203,9 @@ def index():
 
 
 if __name__ == "__main__":
-    # Устанавливаем вебхук при старте приложения на Render
     if RENDER_EXTERNAL_URL:
         bot.remove_webhook()
         bot.set_webhook(url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}")
     
-    # Render автоматически передает переменную PORT
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
