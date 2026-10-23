@@ -1,8 +1,6 @@
 import os
 import time
 import random
-import hmac
-import hashlib
 import html
 import logging
 import threading
@@ -25,17 +23,12 @@ if not BOT_TOKEN:
 # Render сам задаёт RENDER_EXTERNAL_URL. Локально можно задать вручную.
 BASE_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
 
-# Секрет для проверки, что запросы на вебхук приходят именно от Telegram.
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET") or hashlib.sha256(
-    ("webhook:" + BOT_TOKEN).encode()
-).hexdigest()
-
 # 1 = показывать платёж в 1 Star (с автовозвратом), 0 = выключить оплату
 ENABLE_PAYMENT = os.environ.get("ENABLE_PAYMENT", "1") == "1"
 
 PAYLOAD = "demo_payment_v1"
-STEP_DELAY = 1.5          # пауза между этапами «сканирования», сек
-SCAN_COOLDOWN = 10        # минимальный интервал между сканами одного пользователя, сек
+STEP_DELAY = 1.2          # пауза между этапами «сканирования», сек
+SCAN_COOLDOWN = 5         # минимальный интервал между сканами одного пользователя, сек
 MAX_TARGET_LEN = 64
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -104,7 +97,7 @@ def safe_edit(chat_id, message_id, text, reply_markup=None):
         if "message is not modified" not in str(e):
             log.warning("edit_message_text failed: %s", e)
     except Exception:
-        log.exception("edit_message_text unexpected error")
+        pass
 
 
 def country_keyboard():
@@ -120,6 +113,7 @@ def country_keyboard():
 
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
+    log.info("Команда /start получена от пользователя ID: %s", message.from_user.id)
     bot.send_message(
         message.chat.id,
         "🕵️ <b>Telegram Spy & OSINT Intelligence Bot v4.2</b>\n\n"
@@ -169,7 +163,6 @@ def on_text(message):
         return
 
     target = message.text.strip()[:MAX_TARGET_LEN]
-    # Запускаем в отдельном потоке, чтобы не блокировать вебхук Flask.
     threading.Thread(
         target=run_scan, args=(message.chat.id, user_id, target, country), daemon=True
     ).start()
@@ -254,15 +247,13 @@ def on_pre_checkout(query):
 def on_successful_payment(message):
     charge_id = message.successful_payment.telegram_payment_charge_id
     try:
-        # Автоматический возврат звезды, чтобы на демонстрации не тратить реальные средства
         bot.refund_star_payment(message.from_user.id, charge_id)
         refund_note = "💸 <i>(Тестовый режим: ваша звезда была автоматически возвращена на баланс).</i>"
-        log.info("Refunded %s to user %s", charge_id, message.from_user.id)
+        log.info("Возврат звезды выполнен для платежа %s", charge_id)
     except Exception:
-        log.exception("Refund failed for charge %s", charge_id)
+        log.exception("Не удалось вернуть звезду для платежа %s", charge_id)
         refund_note = "⚠️ Платёж прошёл успешно."
 
-    # Блок с разоблачением для презентации (показываем после завершения «скама»)
     bot.send_message(
         message.chat.id,
         "🛑 <b>ЭКСПОЗЕ / УЧЕБНЫЙ СТЕНД БЕЗОПАСНОСТИ</b>\n"
@@ -281,13 +272,14 @@ def on_successful_payment(message):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if not hmac.compare_digest(secret, WEBHOOK_SECRET):
-        abort(403)
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         abort(403)
-    update = telebot.types.Update.de_json(request.get_data(as_text=True))
-    bot.process_new_updates([update])
+    try:
+        json_str = request.get_data(as_text=True)
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+    except Exception:
+        log.exception("Ошибка обработки входящего апдейта")
     return "", 200
 
 
@@ -304,10 +296,9 @@ def setup_webhook():
         bot.remove_webhook()
         bot.set_webhook(
             url=f"{BASE_URL}/webhook",
-            secret_token=WEBHOOK_SECRET,
             allowed_updates=["message", "callback_query", "pre_checkout_query"],
         )
-        log.info("Webhook установлен: %s/webhook", BASE_URL)
+        log.info("Webhook успешно установлен: %s/webhook", BASE_URL)
     except Exception:
         log.exception("Не удалось установить вебхук")
 
